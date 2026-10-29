@@ -1,0 +1,40 @@
+name: Precedent check decisions
+description: >
+  Comments on a pull request with the recorded decisions that apply to the Areas it touches, and fails
+  on recorded facts only: an expired exception in a checked Area, or a superseded decision the pull
+  request cites.
+author: Precedent
+
+inputs:
+  token:
+    description: A CI token from Settings, Agents in Precedent. Store it as a repository secret.
+    required: true
+  url:
+    description: The Precedent deployment. Defaults to the deployment in .precedent.json.
+    required: false
+  config:
+    description: Path to the project link.
+    required: false
+    default: .precedent.json
+  fail-on:
+    description: Comma-separated facts that fail the check. Either or both of expired-exception and superseded-ref; empty to only comment.
+    required: false
+    default: expired-exception,superseded-ref
+  comment:
+    description: Post or update the pull request comment. Set to false to report in the job summary only.
+    required: false
+    default: "true"
+  github-token:
+    description: Token used to read the pull request and write its comment.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  failures:
+    description: Number of facts that failed the check.
+  decisions:
+    description: Number of applicable decisions in the checked Areas.
+
+runs:
+  using: node24
+  main: index.mjs
