@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Imgntech/check-decisions@v2
+      - uses: Imgntech/check-decisions@v1
         with:
           token: ${{ secrets.PRECEDENT_TOKEN }}
 ```
@@ -34,11 +34,11 @@ Full setup, inputs and the endpoint it calls: `/docs/ci` on your Precedent deplo
 
 `index.mjs` is the whole Action: no dependencies and no build step. Its source of truth is `actions/check-decisions/` in the Precedent repository, with tests in `tests/check-decisions-action.test.mjs` and `tests/pr-check-db.test.ts`.
 
-## Migration from v1
+## Migration from v1.0.0
 
-v2 uses the current project link: replace `checkNodeId` with `checkNodeIds: ["<Area id>"]`, or ask your assistant to run `setup_project`. The project link's `version` remains `1`. The Action checks only `checkNodeIds` and optional `paths`; it no longer implicitly checks `recordNodeId`. Add the recording Area explicitly to `checkNodeIds` if it must also be checked, within the three-Area limit.
+v1.1.0 uses the current project link: replace `checkNodeId` with `checkNodeIds: ["<Area id>"]`, or ask your assistant to run `setup_project`. The project link's `version` remains `1`. The Action checks only `checkNodeIds` and optional `paths`; it no longer implicitly checks `recordNodeId`. Add the recording Area explicitly to `checkNodeIds` if it must also be checked, within the three-Area limit.
 
-v1 and v1.0.0 remain unchanged for existing configurations. Select v2 only after updating your project link.
+This pre-launch update changes the configuration accepted by the floating `v1` tag. Update your project link before using it. The immutable `v1.0.0` tag remains on the previous implementation for callers that need the old format.
 
 ## Verification
 
@@ -48,4 +48,4 @@ Run `node --test tests/check-decisions-action.test.mjs` (Node 20 or later). Thes
 
 The public repository `Imgntech/check-decisions` holds a copy of `action.yml` and `index.mjs` from `actions/check-decisions/` in the Precedent repository. This update is sourced from `77f9fcdbf8e1d0ee7460179ce0e2ecbc4b6855ff`. Keep the README usage and migration instructions aligned with the published major version.
 
-After the PR is approved, merged and verified through the private fixture repository, tag that exact commit `v2.0.0` and create `v2` at the same commit. Do not move `v1` or `v1.0.0`: rejecting the old configuration and no longer checking the recording Area implicitly are breaking changes. Subsequent compatible v2 releases get a new immutable version tag and move only the floating `v2` tag. Publishing the Action is separate from deploying the Precedent application.
+After approval and verification, tag the merged commit `v1.1.0` and move the floating `v1` tag to that commit. Preserve `v1.0.0` on its original commit. This explicitly approved pre-launch release changes the configuration contract within v1; future breaking changes should use a new major version. Publishing the Action is separate from deploying the Precedent application.
