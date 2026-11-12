@@ -7,7 +7,7 @@ author: Precedent
 
 inputs:
   token:
-    description: A CI token from Settings, Agents in Precedent. Store it as a repository secret.
+    description: A CI token from Settings, Your preferences in Precedent. Store it as a repository secret.
     required: true
   url:
     description: The Precedent deployment. Defaults to the deployment in .precedent.json.
@@ -38,3 +38,4 @@ outputs:
 runs:
   using: node24
   main: index.mjs
+

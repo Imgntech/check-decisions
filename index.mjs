@@ -11,6 +11,8 @@ export const COMMIT_LIMIT = 250;
 const WORKFLOW_BOT = "github-actions[bot]";
 /** Refs sent per check, read in order from the title, body and commits. Matches REF_LIMIT in src/lib/agent-warnings.ts. */
 export const REF_LIMIT = 500;
+/** Checking Areas a project link may name. Matches PROJECT_CHECK_AREA_LIMIT in src/lib/schemas.ts. */
+export const CHECK_AREA_LIMIT = 3;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** An error the user can act on. Its message is printed as is, without a stack trace. */
@@ -35,7 +37,10 @@ export function readInputs(env = process.env) {
   };
 }
 
-/** The project link the assistant saved, with the optional `paths` mapping. */
+/**
+ * The project link the assistant saved, with the optional `paths` mapping. Only the checking Areas
+ * matter here: recordNodeId is where the assistant proposes decisions, so it is neither required nor read.
+ */
 export function parseProject(text, path = ".precedent.json") {
   let p;
   try {
@@ -44,12 +49,18 @@ export function parseProject(text, path = ".precedent.json") {
     throw new ActionError(`${path} is not valid JSON.`);
   }
   if (!p || p.version !== 1) throw new ActionError(`${path} must be a version 1 project link. Run setup_project from your assistant to create one.`);
-  for (const key of ["workspaceId", "recordNodeId", "checkNodeId"]) if (typeof p[key] !== "string" || !UUID.test(p[key])) throw new ActionError(`${path} needs ${key}, an id from setup_project.`);
+  if (typeof p.workspaceId !== "string" || !UUID.test(p.workspaceId)) throw new ActionError(`${path} needs workspaceId, an id from setup_project.`);
+  if ("checkNodeId" in p) throw new ActionError(`${path} has checkNodeId; replace checkNodeId with checkNodeIds, a list. Run setup_project from your assistant to rewrite the file.`);
+  const check = p.checkNodeIds;
+  if (!Array.isArray(check) || !check.length || check.some((id) => typeof id !== "string" || !UUID.test(id)) || new Set(check.map((id) => id.toLowerCase())).size !== check.length) {
+    throw new ActionError(`${path} needs checkNodeIds, a list of distinct Area ids from setup_project.`);
+  }
+  if (check.length > CHECK_AREA_LIMIT) throw new ActionError(`${path} checkNodeIds names ${check.length} Areas; a project checks at most ${CHECK_AREA_LIMIT}. Use paths to check other Areas for the files they cover.`);
   const paths = p.paths ?? [];
   if (!Array.isArray(paths) || paths.some((m) => !m || typeof m.glob !== "string" || !m.glob.trim() || typeof m.nodeId !== "string" || !UUID.test(m.nodeId))) {
     throw new ActionError(`${path} paths must be a list of { "glob": "src/billing/**", "nodeId": "<Area id>" }.`);
   }
-  return { deployment: typeof p.deployment === "string" ? p.deployment : "", workspaceId: p.workspaceId.toLowerCase(), recordNodeId: p.recordNodeId.toLowerCase(), checkNodeId: p.checkNodeId.toLowerCase(), paths: paths.map((m) => ({ glob: m.glob.trim(), nodeId: m.nodeId.toLowerCase() })) };
+  return { deployment: typeof p.deployment === "string" ? p.deployment : "", workspaceId: p.workspaceId.toLowerCase(), checkNodeIds: check.map((id) => id.toLowerCase()), paths: paths.map((m) => ({ glob: m.glob.trim(), nodeId: m.nodeId.toLowerCase() })) };
 }
 
 /** `**` crosses directories, `*` and `?` stay within one; a glob without a slash matches a file name at any depth. */
@@ -72,12 +83,12 @@ export function globToRegExp(glob) {
 }
 
 /**
- * The Areas a change touches. Without a mapping, the project's checking and recording Areas, as an
- * assistant using the project link checks them. With one, each changed file counts toward every Area
- * whose glob it matches, and a file that matches none toward the project's Areas.
+ * The Areas a change touches. Without a mapping, the project's checking Areas, as an assistant using
+ * the project link checks them. With one, each changed file counts toward every Area whose glob it
+ * matches, and a file that matches none toward the checking Areas.
  */
 export function areasFor(files, project) {
-  const own = [...new Set([project.checkNodeId, project.recordNodeId])];
+  const own = project.checkNodeIds;
   if (!project.paths.length) return own;
   const maps = project.paths.map((m) => ({ re: globToRegExp(m.glob), nodeId: m.nodeId }));
   const ids = new Set();
@@ -189,7 +200,7 @@ export async function runCheck({ base, workspace, token, nodeIds, refs }, fetchI
   const message = body?.message ?? `HTTP ${res.status}`;
   if (res.status === 401) throw new ActionError(`Precedent rejected the token: ${message}`);
   if (res.status === 403) throw new ActionError(`Precedent refused the check: ${message}`);
-  if (res.status === 404) throw new ActionError(`Precedent could not find it: ${message}. Check checkNodeId and paths in .precedent.json against list_nodes.`);
+  if (res.status === 404) throw new ActionError(`Precedent could not find it: ${message}. Check checkNodeIds and paths in .precedent.json against list_nodes.`);
   throw new ActionError(`The pull request check failed (HTTP ${res.status}): ${message}`);
 }
 
@@ -269,7 +280,7 @@ export async function run({ env = process.env, fetchImpl = fetch, readFile = (p)
   const event = env.GITHUB_EVENT_PATH ? JSON.parse(readFile(env.GITHUB_EVENT_PATH)) : {};
   const number = event.pull_request?.number ?? event.number;
   if (!number) throw new ActionError("Run this action on pull_request or pull_request_target events.");
-  if (!inputs.token) throw new ActionError("Set the token input to a CI token from Settings, Agents in Precedent. Pull requests from forks do not receive repository secrets.");
+  if (!inputs.token) throw new ActionError("Set the token input to a CI token from Settings, Your preferences in Precedent. Pull requests from forks do not receive repository secrets.");
   command("add-mask", inputs.token);
   const repo = env.GITHUB_REPOSITORY;
 
@@ -314,3 +325,4 @@ async function main() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) await main();
+
