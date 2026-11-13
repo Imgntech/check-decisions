@@ -39,7 +39,8 @@ export function readInputs(env = process.env) {
 
 /**
  * The project link the assistant saved, with the optional `paths` mapping. Only the checking Areas
- * matter here: recordNodeId is where the assistant proposes decisions, so it is neither required nor read.
+ * matter here: recordAreaId is where the assistant proposes decisions, so it is neither required nor read.
+ * Version 1 files named Areas as nodes; they are refused so the project is set up again (PRE-210).
  */
 export function parseProject(text, path = ".precedent.json") {
   let p;
@@ -48,19 +49,19 @@ export function parseProject(text, path = ".precedent.json") {
   } catch {
     throw new ActionError(`${path} is not valid JSON.`);
   }
-  if (!p || p.version !== 1) throw new ActionError(`${path} must be a version 1 project link. Run setup_project from your assistant to create one.`);
+  if (p?.version === 1) throw new ActionError(`${path} is a version 1 project link, and version 1 files are no longer read. Set the project up again: ask your assistant to run setup_project, then commit the file it returns.`);
+  if (!p || p.version !== 2) throw new ActionError(`${path} must be a version 2 project link. Run setup_project from your assistant to create one.`);
   if (typeof p.workspaceId !== "string" || !UUID.test(p.workspaceId)) throw new ActionError(`${path} needs workspaceId, an id from setup_project.`);
-  if ("checkNodeId" in p) throw new ActionError(`${path} has checkNodeId; replace checkNodeId with checkNodeIds, a list. Run setup_project from your assistant to rewrite the file.`);
-  const check = p.checkNodeIds;
+  const check = p.checkAreaIds;
   if (!Array.isArray(check) || !check.length || check.some((id) => typeof id !== "string" || !UUID.test(id)) || new Set(check.map((id) => id.toLowerCase())).size !== check.length) {
-    throw new ActionError(`${path} needs checkNodeIds, a list of distinct Area ids from setup_project.`);
+    throw new ActionError(`${path} needs checkAreaIds, a list of distinct Area ids from setup_project.`);
   }
-  if (check.length > CHECK_AREA_LIMIT) throw new ActionError(`${path} checkNodeIds names ${check.length} Areas; a project checks at most ${CHECK_AREA_LIMIT}. Use paths to check other Areas for the files they cover.`);
+  if (check.length > CHECK_AREA_LIMIT) throw new ActionError(`${path} checkAreaIds names ${check.length} Areas; a project checks at most ${CHECK_AREA_LIMIT}. Use paths to check other Areas for the files they cover.`);
   const paths = p.paths ?? [];
-  if (!Array.isArray(paths) || paths.some((m) => !m || typeof m.glob !== "string" || !m.glob.trim() || typeof m.nodeId !== "string" || !UUID.test(m.nodeId))) {
-    throw new ActionError(`${path} paths must be a list of { "glob": "src/billing/**", "nodeId": "<Area id>" }.`);
+  if (!Array.isArray(paths) || paths.some((m) => !m || typeof m.glob !== "string" || !m.glob.trim() || typeof m.areaId !== "string" || !UUID.test(m.areaId))) {
+    throw new ActionError(`${path} paths must be a list of { "glob": "src/billing/**", "areaId": "<Area id>" }.`);
   }
-  return { deployment: typeof p.deployment === "string" ? p.deployment : "", workspaceId: p.workspaceId.toLowerCase(), checkNodeIds: check.map((id) => id.toLowerCase()), paths: paths.map((m) => ({ glob: m.glob.trim(), nodeId: m.nodeId.toLowerCase() })) };
+  return { deployment: typeof p.deployment === "string" ? p.deployment : "", workspaceId: p.workspaceId.toLowerCase(), checkAreaIds: check.map((id) => id.toLowerCase()), paths: paths.map((m) => ({ glob: m.glob.trim(), areaId: m.areaId.toLowerCase() })) };
 }
 
 /** `**` crosses directories, `*` and `?` stay within one; a glob without a slash matches a file name at any depth. */
@@ -88,13 +89,13 @@ export function globToRegExp(glob) {
  * matches, and a file that matches none toward the checking Areas.
  */
 export function areasFor(files, project) {
-  const own = project.checkNodeIds;
+  const own = project.checkAreaIds;
   if (!project.paths.length) return own;
-  const maps = project.paths.map((m) => ({ re: globToRegExp(m.glob), nodeId: m.nodeId }));
+  const maps = project.paths.map((m) => ({ re: globToRegExp(m.glob), areaId: m.areaId }));
   const ids = new Set();
   for (const f of files) {
     const hits = maps.filter((m) => m.re.test(f));
-    for (const id of hits.length ? hits.map((h) => h.nodeId) : own) ids.add(id);
+    for (const id of hits.length ? hits.map((h) => h.areaId) : own) ids.add(id);
   }
   return ids.size ? [...ids] : own;
 }
@@ -191,16 +192,17 @@ async function call(fetchImpl, url, init, what) {
   return { res, body };
 }
 
-export async function runCheck({ base, workspace, token, nodeIds, refs }, fetchImpl = fetch) {
+export async function runCheck({ base, workspace, token, areaIds, refs }, fetchImpl = fetch) {
   const q = new URLSearchParams();
-  if (nodeIds.length) q.set("nodeIds", nodeIds.join(","));
+  // The pull request check's own query parameter is still nodeIds.
+  if (areaIds.length) q.set("nodeIds", areaIds.join(","));
   if (refs.length) q.set("refs", refs.join(","));
   const { res, body } = await call(fetchImpl, `${base}/api/w/${encodeURIComponent(workspace)}/pr-check?${q}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }, "the pull request check");
   if (res.ok && body) return body;
   const message = body?.message ?? `HTTP ${res.status}`;
   if (res.status === 401) throw new ActionError(`Precedent rejected the token: ${message}`);
   if (res.status === 403) throw new ActionError(`Precedent refused the check: ${message}`);
-  if (res.status === 404) throw new ActionError(`Precedent could not find it: ${message}. Check checkNodeIds and paths in .precedent.json against list_nodes.`);
+  if (res.status === 404) throw new ActionError(`Precedent could not find it: ${message}. Check checkAreaIds and paths in .precedent.json against list_areas.`);
   throw new ActionError(`The pull request check failed (HTTP ${res.status}): ${message}`);
 }
 
@@ -295,13 +297,13 @@ export async function run({ env = process.env, fetchImpl = fetch, readFile = (p)
 
   const gh = github({ token: inputs.githubToken, apiUrl: env.GITHUB_API_URL || undefined, repo }, fetchImpl);
   const [pull, files, commits] = await Promise.all([gh.pull(number), project.paths.length ? gh.files(number) : Promise.resolve([]), gh.commits(number)]);
-  const nodeIds = areasFor(files, project);
+  const areaIds = areasFor(files, project);
   const { refs, skipped } = extractRefs([pull.title, pull.body, ...commits]);
   if (skipped) command("warning", `Checked the first ${REF_LIMIT} ref-like strings in the pull request; ${skipped} more were not checked.`);
   const commitsCut = commits.length >= COMMIT_LIMIT;
   if (commitsCut) command("warning", `GitHub lists only the first ${COMMIT_LIMIT} commits; refs in later commits were not checked.`);
 
-  const result = await runCheck({ base, workspace: project.workspaceId, token: inputs.token, nodeIds, refs }, fetchImpl);
+  const result = await runCheck({ base, workspace: project.workspaceId, token: inputs.token, areaIds, refs }, fetchImpl);
   if (result.workspace?.id !== project.workspaceId) throw new ActionError(`${inputs.config} names workspace ${project.workspaceId}, but the token belongs to ${result.workspace?.slug ?? "another workspace"}.`);
 
   const body = renderComment(result, { failOn: inputs.failOn, config: inputs.config, deployment: base, skippedRefs: skipped, commitsCut });
@@ -325,4 +327,3 @@ async function main() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) await main();
-
