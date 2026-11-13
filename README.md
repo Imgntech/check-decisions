@@ -44,6 +44,6 @@ Run `node --test tests/check-decisions-action.test.mjs` (Node 20 or later). The 
 
 Implementation and tests are synced from Precedent commit `1e2e89d9e7134cb96116e5de37714afe1afc1016` (PRE-210). The HTTP `pr-check` endpoint still accepts `nodeIds`; the Action maps the new configuration names to that unchanged parameter.
 
-Do not publish or move tags until production serves PRE-210, `setup_project` returns a version 2 project link, and a private fixture verifies the candidate against that configuration. Version 1 project files are deliberately refused. Commit the newly generated configuration together with selecting the matching Action release.
+Do not merge, publish or move tags until production serves PRE-210, `setup_project` returns a version 2 project link, and a private fixture verifies the candidate against that configuration. Version 1 project files are deliberately refused. Commit the newly generated configuration together with selecting the matching Action release.
 
 Release version and floating tag are to be confirmed before rollout. Preserve existing `v1.0.0` and `v1.1.0` tags. Publishing this Action is separate from deploying Precedent or releasing its assistant plugin.
