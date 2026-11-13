@@ -40,7 +40,7 @@ export function readInputs(env = process.env) {
 /**
  * The project link the assistant saved, with the optional `paths` mapping. Only the checking Areas
  * matter here: recordAreaId is where the assistant proposes decisions, so it is neither required nor read.
- * Version 1 files named Areas as nodes; they are refused so the project is set up again (PRE-210).
+ * Version 1 uses node names; normalise it before applying the same checks.
  */
 export function parseProject(text, path = ".precedent.json") {
   let p;
@@ -49,8 +49,10 @@ export function parseProject(text, path = ".precedent.json") {
   } catch {
     throw new ActionError(`${path} is not valid JSON.`);
   }
-  if (p?.version === 1) throw new ActionError(`${path} is a version 1 project link, and version 1 files are no longer read. Set the project up again: ask your assistant to run setup_project, then commit the file it returns.`);
-  if (!p || p.version !== 2) throw new ActionError(`${path} must be a version 2 project link. Run setup_project from your assistant to create one.`);
+  if (!p || ![1, 2].includes(p.version)) throw new ActionError(`${path} must be a version 1 or 2 project link. Run setup_project from your assistant to create one.`);
+  if (p.version === 1) {
+    p = { ...p, checkAreaIds: p.checkNodeIds, paths: Array.isArray(p.paths) ? p.paths.map((m) => m && ({ glob: m.glob, areaId: m.nodeId })) : p.paths };
+  }
   if (typeof p.workspaceId !== "string" || !UUID.test(p.workspaceId)) throw new ActionError(`${path} needs workspaceId, an id from setup_project.`);
   const check = p.checkAreaIds;
   if (!Array.isArray(check) || !check.length || check.some((id) => typeof id !== "string" || !UUID.test(id)) || new Set(check.map((id) => id.toLowerCase())).size !== check.length) {

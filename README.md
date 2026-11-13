@@ -1,6 +1,6 @@
 # check-decisions
 
-> Unreleased version 2 project-link support. Existing published tags do not contain this change. Test this branch by exact commit SHA; release is blocked until production serves PRE-210 and the matching configuration has been verified end to end.
+> Unreleased Action v2 candidate supporting both version 1 and version 2 project links. Existing published tags do not contain this change. Test this branch by exact commit SHA; merge and release remain held pending production compatibility and verification of this exact candidate.
 
 A GitHub Action that comments on a pull request with the Precedent decisions that apply to the Areas it touches, and fails the check only on recorded facts:
 
@@ -28,7 +28,14 @@ jobs:
 
 `PRECEDENT_TOKEN` is a CI token from Settings, Your preferences in Precedent: read only, optionally limited to one Area, revocable under Settings, Assistants.
 
-The repository needs the version 2 `.precedent.json` that the assistant's `setup_project` writes. Its `checkAreaIds`, one to three Areas, are checked; `recordAreaId` is where the assistant proposes decisions and the Action ignores it. An optional `paths` list maps globs to Areas (`{ "glob": "…", "areaId": "…" }`); a changed file matching no glob is checked in `checkAreaIds`. A version 1 file is refused: set the project up again with `setup_project` and commit the new file.
+The repository needs a supported `.precedent.json` project link. The Action checks one to three default Areas and any optional path mappings:
+
+| Project version | Checking Areas | Optional path mapping | Recording Area (ignored by the Action) |
+| --- | --- | --- | --- |
+| `1` | `checkNodeIds` | `{ "glob": "src/billing/**", "nodeId": "<Area id>" }` | `recordNodeId` |
+| `2` | `checkAreaIds` | `{ "glob": "src/billing/**", "areaId": "<Area id>" }` | `recordAreaId` |
+
+A changed file matching no glob is checked in the default checking Areas. Path mappings select Areas for matching files; the recording Area is never implicitly checked. Existing token scope and server permission checks still apply.
 
 Full setup, inputs and the endpoint it calls: `/docs/ci` on your Precedent deployment.
 
@@ -40,10 +47,16 @@ Full setup, inputs and the endpoint it calls: `/docs/ci` on your Precedent deplo
 
 Run `node --test tests/check-decisions-action.test.mjs` (Node 20 or later). The mocked suite makes no network or AI calls. It is copied from the maintained source with only its import path changed.
 
+## Migration to Action v2
+
+Action v2 is the planned new major release; it is separate from the project file's `version`. This candidate accepts existing version 1 links using `checkNodeIds` without rewriting them. The older single-Area `checkNodeId` format is not supported: convert it to `checkNodeIds: ["<Area id>"]` while retaining `version: 1`, or use `setup_project` on a compatible server.
+
+To adopt version 2 project links, use `setup_project` on a server that supports them. Preserve existing optional path mappings when saving the generated link, translating each `paths.nodeId` to `paths.areaId`. Keep the intended checking Areas and recording Area. Do not give a version 2 file to an older published Action that only reads version 1; select a compatible Action candidate or released version together with that configuration.
+
 ## Publishing
 
-Implementation and tests are synced from Precedent commit `1e2e89d9e7134cb96116e5de37714afe1afc1016` (PRE-210). The HTTP `pr-check` endpoint still accepts `nodeIds`; the Action maps the new configuration names to that unchanged parameter.
+Implementation, `action.yml` and tests are synced from verified Precedent commit `956dacac3b5aa21a7a30d35526ce5b7b6469182c` (PRE-241). Only the test import path changes for this repository's layout. The HTTP `pr-check` endpoint still accepts `nodeIds`; both project formats map to that unchanged parameter.
 
-Do not merge, publish or move tags until production serves PRE-210, `setup_project` returns a version 2 project link, and a private fixture verifies the candidate against that configuration. Version 1 project files are deliberately refused. Commit the newly generated configuration together with selecting the matching Action release.
+The next approved major is v2. No v2 release or tag is published by this draft. Preserve all existing v1 tags, including immutable `v1.0.0` and `v1.1.0`; do not repoint them to this candidate.
 
-Release version and floating tag are to be confirmed before rollout. Preserve existing `v1.0.0` and `v1.1.0` tags. Publishing this Action is separate from deploying Precedent or releasing its assistant plugin.
+Do not merge, publish or change tags until production compatibility and the release sequence are approved and this exact candidate is verified end to end. The narrow production release path remains unresolved. Publishing this Action is separate from deploying Precedent or releasing its assistant plugin.

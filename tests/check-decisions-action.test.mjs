@@ -37,12 +37,13 @@ test("the project link needs a workspace and 1 to 3 checking Areas, and paths ma
   assert.deepEqual(parseProject(project({ paths: [{ glob: " billing/** ", areaId: BILLING.toUpperCase() }] })).paths, [{ glob: "billing/**", areaId: BILLING }]);
 });
 
-test("a version 1 project link is refused with a message to set the project up again", () => {
-  const versionOne = JSON.stringify({ version: 1, deployment: "https://precedent.example", workspaceId: WS, recordNodeId: RECORD, checkNodeIds: [CHECK] });
-  assert.throws(() => parseProject(versionOne), (e) => e instanceof ActionError && /version 1 project link, and version 1 files are no longer read\. Set the project up again: ask your assistant to run setup_project/.test(e.message));
-  assert.throws(() => parseProject(project({ version: 3 })), (e) => e instanceof ActionError && /must be a version 2 project link/.test(e.message));
-  // A version 2 file with the old field names is incomplete, not read under the new ones.
-  assert.throws(() => parseProject(JSON.stringify({ version: 2, workspaceId: WS, recordNodeId: RECORD, checkNodeIds: [CHECK] })), /needs checkAreaIds/);
+test("version 1 project links check their original Areas and path mappings", () => {
+  const old = { version: 1, deployment: "https://precedent.example", workspaceId: WS, recordNodeId: RECORD, checkNodeIds: [CHECK], paths: [{ glob: "billing/**", nodeId: BILLING }] };
+  const parsed = parseProject(JSON.stringify(old));
+  assert.deepEqual(areasFor(["billing/charge.ts", "README.md"], parsed).sort(), [BILLING, CHECK].sort());
+  assert.throws(() => parseProject(JSON.stringify({ ...old, checkNodeIds: [] })), /needs checkAreaIds/);
+  assert.throws(() => parseProject(JSON.stringify({ ...old, version: 2 })), /needs checkAreaIds/);
+  assert.throws(() => parseProject(project({ version: 3 })), /version 1 or 2/);
 });
 
 test("globs: ** crosses directories, * stays in one, a bare name matches at any depth", () => {
