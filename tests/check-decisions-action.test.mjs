@@ -9,7 +9,7 @@ const CHECK = "22222222-2222-4222-8222-222222222222";
 const BILLING = "33333333-3333-4333-8333-333333333333";
 const RECORD = "44444444-4444-4444-8444-444444444444";
 const OTHER = "55555555-5555-4555-8555-555555555555";
-const project = (extra = {}) => JSON.stringify({ version: 1, deployment: "https://precedent.example", workspaceId: WS, recordNodeId: RECORD, checkNodeIds: [CHECK], ...extra });
+const project = (extra = {}) => JSON.stringify({ version: 2, deployment: "https://precedent.example", workspaceId: WS, recordAreaId: RECORD, checkAreaIds: [CHECK], ...extra });
 const url = (ref) => `https://precedent.example/w/acme/decisions/${ref}`;
 
 test("inputs default fail-on to both facts and reject unknown kinds", () => {
@@ -20,22 +20,29 @@ test("inputs default fail-on to both facts and reject unknown kinds", () => {
 
 test("the project link needs a workspace and 1 to 3 checking Areas, and paths map globs to Areas", () => {
   assert.throws(() => parseProject("{"), /not valid JSON/);
-  assert.throws(() => parseProject(JSON.stringify({ version: 1, workspaceId: WS, recordNodeId: RECORD, checkNodeId: CHECK })), (e) => e instanceof ActionError && /replace checkNodeId with checkNodeIds/.test(e.message));
-  assert.throws(() => parseProject(project({ checkNodeId: CHECK })), (e) => e instanceof ActionError && /replace checkNodeId with checkNodeIds/.test(e.message));
-  assert.throws(() => parseProject(project({ checkNodeIds: [] })), /needs checkNodeIds/);
-  assert.throws(() => parseProject(project({ checkNodeIds: CHECK })), /needs checkNodeIds/);
-  assert.throws(() => parseProject(project({ checkNodeIds: ["not-a-uuid"] })), /needs checkNodeIds/);
-  assert.throws(() => parseProject(project({ checkNodeIds: [CHECK, CHECK.toUpperCase()] })), /needs checkNodeIds/);
+  assert.throws(() => parseProject(project({ checkAreaIds: [] })), /needs checkAreaIds/);
+  assert.throws(() => parseProject(project({ checkAreaIds: CHECK })), /needs checkAreaIds/);
+  assert.throws(() => parseProject(project({ checkAreaIds: ["not-a-uuid"] })), /needs checkAreaIds/);
+  assert.throws(() => parseProject(project({ checkAreaIds: [CHECK, CHECK.toUpperCase()] })), /needs checkAreaIds/);
   assert.equal(CHECK_AREA_LIMIT, 3);
-  assert.throws(() => parseProject(project({ checkNodeIds: [CHECK, BILLING, RECORD, OTHER] })), /at most 3/);
-  assert.deepEqual(parseProject(project({ checkNodeIds: [CHECK.toUpperCase(), BILLING, OTHER] })).checkNodeIds, [CHECK, BILLING, OTHER]);
+  assert.throws(() => parseProject(project({ checkAreaIds: [CHECK, BILLING, RECORD, OTHER] })), /at most 3/);
+  assert.deepEqual(parseProject(project({ checkAreaIds: [CHECK.toUpperCase(), BILLING, OTHER] })).checkAreaIds, [CHECK, BILLING, OTHER]);
   // The recording Area is the assistant's; the check neither needs nor reads it.
   const noRecord = JSON.parse(project());
-  delete noRecord.recordNodeId;
-  assert.deepEqual(parseProject(JSON.stringify(noRecord)).checkNodeIds, [CHECK]);
-  assert.equal("recordNodeId" in parseProject(project()), false);
+  delete noRecord.recordAreaId;
+  assert.deepEqual(parseProject(JSON.stringify(noRecord)).checkAreaIds, [CHECK]);
+  assert.equal("recordAreaId" in parseProject(project()), false);
   assert.throws(() => parseProject(project({ paths: [{ glob: "src/**" }] })), /paths must be a list/);
-  assert.deepEqual(parseProject(project({ paths: [{ glob: " billing/** ", nodeId: BILLING.toUpperCase() }] })).paths, [{ glob: "billing/**", nodeId: BILLING }]);
+  assert.throws(() => parseProject(project({ paths: [{ glob: "src/**", nodeId: BILLING }] })), /paths must be a list of \{ "glob": "src\/billing\/\*\*", "areaId"/);
+  assert.deepEqual(parseProject(project({ paths: [{ glob: " billing/** ", areaId: BILLING.toUpperCase() }] })).paths, [{ glob: "billing/**", areaId: BILLING }]);
+});
+
+test("a version 1 project link is refused with a message to set the project up again", () => {
+  const versionOne = JSON.stringify({ version: 1, deployment: "https://precedent.example", workspaceId: WS, recordNodeId: RECORD, checkNodeIds: [CHECK] });
+  assert.throws(() => parseProject(versionOne), (e) => e instanceof ActionError && /version 1 project link, and version 1 files are no longer read\. Set the project up again: ask your assistant to run setup_project/.test(e.message));
+  assert.throws(() => parseProject(project({ version: 3 })), (e) => e instanceof ActionError && /must be a version 2 project link/.test(e.message));
+  // A version 2 file with the old field names is incomplete, not read under the new ones.
+  assert.throws(() => parseProject(JSON.stringify({ version: 2, workspaceId: WS, recordNodeId: RECORD, checkNodeIds: [CHECK] })), /needs checkAreaIds/);
 });
 
 test("globs: ** crosses directories, * stays in one, a bare name matches at any depth", () => {
@@ -50,9 +57,9 @@ test("globs: ** crosses directories, * stays in one, a bare name matches at any 
 
 test("without paths the checking Areas are checked, never the recording Area; with paths each file counts toward its Areas or the checking ones", () => {
   assert.deepEqual(areasFor(["anything.ts"], parseProject(project())), [CHECK]);
-  const several = parseProject(project({ checkNodeIds: [CHECK, OTHER] }));
+  const several = parseProject(project({ checkAreaIds: [CHECK, OTHER] }));
   assert.deepEqual(areasFor(["anything.ts"], several), [CHECK, OTHER]);
-  const mapped = parseProject(project({ checkNodeIds: [CHECK, OTHER], paths: [{ glob: "billing/**", nodeId: BILLING }] }));
+  const mapped = parseProject(project({ checkAreaIds: [CHECK, OTHER], paths: [{ glob: "billing/**", areaId: BILLING }] }));
   assert.deepEqual(areasFor(["billing/charge.ts"], mapped), [BILLING]);
   assert.deepEqual(areasFor(["billing/charge.ts", "README.md"], mapped).sort(), [BILLING, CHECK, OTHER].sort());
   assert.deepEqual(areasFor([], mapped), [CHECK, OTHER]);
@@ -227,7 +234,7 @@ test("a superseded ref in the body fails with its successor; a current ref passe
 
 test("paths send the touched Areas", async () => {
   const w = world();
-  await quiet(() => run({ env: w.env(), fetchImpl: w.fetchImpl, readFile: files(project({ paths: [{ glob: "billing/**", nodeId: BILLING }] })) }));
+  await quiet(() => run({ env: w.env(), fetchImpl: w.fetchImpl, readFile: files(project({ paths: [{ glob: "billing/**", areaId: BILLING }] })) }));
   assert.equal(w.calls.find((c) => c.url?.pathname.endsWith("/pr-check")).url.searchParams.get("nodeIds"), BILLING);
 });
 
@@ -257,4 +264,3 @@ test("reference extraction and comments preserve refs beyond three digits", () =
   const body = renderComment(result({ cited: refs.map(ref => ({ ref, title: "Catalog search", url: url(ref), state: "decided", type: null, badge: null, expiresAt: null, successor: null })) }), { failOn: [], config: ".precedent.json", deployment: "https://precedent.example" });
   for (const ref of refs) assert.ok(body.includes(`[${ref}](${url(ref)})`), body);
 });
-
