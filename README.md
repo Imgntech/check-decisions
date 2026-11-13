@@ -1,5 +1,7 @@
 # check-decisions
 
+> Unreleased Action v2 candidate supporting both version 1 and version 2 project links. Existing published tags do not contain this change. Test this branch by exact commit SHA; merge and release remain held pending production compatibility and verification of this exact candidate.
+
 A GitHub Action that comments on a pull request with the Precedent decisions that apply to the Areas it touches, and fails the check only on recorded facts:
 
 - `expired-exception`: a decided exception tagged with a checked Area is past its date.
@@ -19,14 +21,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Imgntech/check-decisions@v1
+      - uses: Imgntech/check-decisions@<verified-candidate-commit-sha>
         with:
           token: ${{ secrets.PRECEDENT_TOKEN }}
 ```
 
 `PRECEDENT_TOKEN` is a CI token from Settings, Your preferences in Precedent: read only, optionally limited to one Area, revocable under Settings, Assistants.
 
-The repository needs the `.precedent.json` that the assistant's `setup_project` writes. Its `checkNodeIds`, one to three Areas, are checked; `recordNodeId` is where the assistant proposes decisions and the Action ignores it. An optional `paths` list maps globs to Areas; a changed file matching no glob is checked in `checkNodeIds`.
+The repository needs a supported `.precedent.json` project link. The Action checks one to three default Areas and any optional path mappings:
+
+| Project version | Checking Areas | Optional path mapping | Recording Area (ignored by the Action) |
+| --- | --- | --- | --- |
+| `1` | `checkNodeIds` | `{ "glob": "src/billing/**", "nodeId": "<Area id>" }` | `recordNodeId` |
+| `2` | `checkAreaIds` | `{ "glob": "src/billing/**", "areaId": "<Area id>" }` | `recordAreaId` |
+
+A changed file matching no glob is checked in the default checking Areas. Path mappings select Areas for matching files; the recording Area is never implicitly checked. Existing token scope and server permission checks still apply.
 
 Full setup, inputs and the endpoint it calls: `/docs/ci` on your Precedent deployment.
 
@@ -34,18 +43,20 @@ Full setup, inputs and the endpoint it calls: `/docs/ci` on your Precedent deplo
 
 `index.mjs` is the whole Action: no dependencies and no build step. Its source of truth is `actions/check-decisions/` in the Precedent repository, with tests in `tests/check-decisions-action.test.mjs` and `tests/pr-check-db.test.ts`.
 
-## Migration from v1.0.0
-
-v1.1.0 uses the current project link: replace `checkNodeId` with `checkNodeIds: ["<Area id>"]`, or ask your assistant to run `setup_project`. The project link's `version` remains `1`. The Action checks only `checkNodeIds` and optional `paths`; it no longer implicitly checks `recordNodeId`. Add the recording Area explicitly to `checkNodeIds` if it must also be checked, within the three-Area limit.
-
-This pre-launch update changes the configuration accepted by the floating `v1` tag. Update your project link before using it. The immutable `v1.0.0` tag remains on the previous implementation for callers that need the old format.
-
 ## Verification
 
-Run `node --test tests/check-decisions-action.test.mjs` (Node 20 or later). These mocked tests make no network or AI calls. The suite is copied from the maintained source with only its import path changed for this repository's root layout.
+Run `node --test tests/check-decisions-action.test.mjs` (Node 20 or later). The mocked suite makes no network or AI calls. It is copied from the maintained source with only its import path changed.
+
+## Migration to Action v2
+
+Action v2 is the planned new major release; it is separate from the project file's `version`. This candidate accepts existing version 1 links using `checkNodeIds` without rewriting them. The older single-Area `checkNodeId` format is not supported: convert it to `checkNodeIds: ["<Area id>"]` while retaining `version: 1`, or use `setup_project` on a compatible server.
+
+To adopt version 2 project links, use `setup_project` on a server that supports them. Preserve existing optional path mappings when saving the generated link, translating each `paths.nodeId` to `paths.areaId`. Keep the intended checking Areas and recording Area. Do not give a version 2 file to an older published Action that only reads version 1; select a compatible Action candidate or released version together with that configuration.
 
 ## Publishing
 
-The public repository `Imgntech/check-decisions` holds a copy of `action.yml` and `index.mjs` from `actions/check-decisions/` in the Precedent repository. This update is sourced from `77f9fcdbf8e1d0ee7460179ce0e2ecbc4b6855ff`. Keep the README usage and migration instructions aligned with the published major version.
+Implementation, `action.yml` and tests are synced from verified Precedent commit `956dacac3b5aa21a7a30d35526ce5b7b6469182c` (PRE-241). Only the test import path changes for this repository's layout. The HTTP `pr-check` endpoint still accepts `nodeIds`; both project formats map to that unchanged parameter.
 
-After approval and verification, tag the merged commit `v1.1.0` and move the floating `v1` tag to that commit. Preserve `v1.0.0` on its original commit. This explicitly approved pre-launch release changes the configuration contract within v1; future breaking changes should use a new major version. Publishing the Action is separate from deploying the Precedent application.
+The next approved major is v2. No v2 release or tag is published by this draft. Preserve all existing v1 tags, including immutable `v1.0.0` and `v1.1.0`; do not repoint them to this candidate.
+
+Do not merge, publish or change tags until production compatibility and the release sequence are approved and this exact candidate is verified end to end. The narrow production release path remains unresolved. Publishing this Action is separate from deploying Precedent or releasing its assistant plugin.
