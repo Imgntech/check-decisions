@@ -42,6 +42,7 @@ test("version 1 project links check their original Areas and path mappings", () 
   const parsed = parseProject(JSON.stringify(old));
   assert.deepEqual(areasFor(["billing/charge.ts", "README.md"], parsed).sort(), [BILLING, CHECK].sort());
   assert.throws(() => parseProject(JSON.stringify({ ...old, checkNodeIds: [] })), /needs checkAreaIds/);
+  // A version 2 file with the old field names is incomplete, not read under the new ones.
   assert.throws(() => parseProject(JSON.stringify({ ...old, version: 2 })), /needs checkAreaIds/);
   assert.throws(() => parseProject(project({ version: 3 })), /version 1 or 2/);
 });
