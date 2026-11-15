@@ -40,7 +40,7 @@ export function readInputs(env = process.env) {
 /**
  * The project link the assistant saved, with the optional `paths` mapping. Only the checking Areas
  * matter here: recordAreaId is where the assistant proposes decisions, so it is neither required nor read.
- * Version 1 uses node names; normalise it before applying the same checks.
+ * Action v3 accepts only version 2 Area fields.
  */
 export function parseProject(text, path = ".precedent.json") {
   let p;
@@ -49,9 +49,9 @@ export function parseProject(text, path = ".precedent.json") {
   } catch {
     throw new ActionError(`${path} is not valid JSON.`);
   }
-  if (!p || ![1, 2].includes(p.version)) throw new ActionError(`${path} must be a version 1 or 2 project link. Run setup_project from your assistant to create one.`);
-  if (p.version === 1) {
-    p = { ...p, checkAreaIds: p.checkNodeIds, paths: Array.isArray(p.paths) ? p.paths.map((m) => m && ({ glob: m.glob, areaId: m.nodeId })) : p.paths };
+  if (!p || p.version !== 2) throw new ActionError(`${path} must be a version 2 project link. Run setup_project from your assistant, preserve any path mappings, and commit the file before upgrading to Action v3.`);
+  if (["checkNodeId", "checkNodeIds", "recordNodeId"].some((key) => key in p) || (Array.isArray(p.paths) && p.paths.some((m) => m && typeof m === "object" && "nodeId" in m))) {
+    throw new ActionError(`${path} contains obsolete Node fields. Use checkAreaIds, recordAreaId and paths[].areaId, preserving the same Area ids and path globs.`);
   }
   if (typeof p.workspaceId !== "string" || !UUID.test(p.workspaceId)) throw new ActionError(`${path} needs workspaceId, an id from setup_project.`);
   const check = p.checkAreaIds;

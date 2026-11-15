@@ -33,18 +33,19 @@ test("the project link needs a workspace and 1 to 3 checking Areas, and paths ma
   assert.deepEqual(parseProject(JSON.stringify(noRecord)).checkAreaIds, [CHECK]);
   assert.equal("recordAreaId" in parseProject(project()), false);
   assert.throws(() => parseProject(project({ paths: [{ glob: "src/**" }] })), /paths must be a list/);
-  assert.throws(() => parseProject(project({ paths: [{ glob: "src/**", nodeId: BILLING }] })), /paths must be a list of \{ "glob": "src\/billing\/\*\*", "areaId"/);
+  assert.throws(() => parseProject(project({ paths: [{ glob: "src/**", nodeId: BILLING }] })), /Node fields.*Area/);
   assert.deepEqual(parseProject(project({ paths: [{ glob: " billing/** ", areaId: BILLING.toUpperCase() }] })).paths, [{ glob: "billing/**", areaId: BILLING }]);
 });
 
-test("version 1 project links check their original Areas and path mappings", () => {
-  const old = { version: 1, deployment: "https://precedent.example", workspaceId: WS, recordNodeId: RECORD, checkNodeIds: [CHECK], paths: [{ glob: "billing/**", nodeId: BILLING }] };
-  const parsed = parseProject(JSON.stringify(old));
-  assert.deepEqual(areasFor(["billing/charge.ts", "README.md"], parsed).sort(), [BILLING, CHECK].sort());
-  assert.throws(() => parseProject(JSON.stringify({ ...old, checkNodeIds: [] })), /needs checkAreaIds/);
-  // A version 2 file with the old field names is incomplete, not read under the new ones.
-  assert.throws(() => parseProject(JSON.stringify({ ...old, version: 2 })), /needs checkAreaIds/);
-  assert.throws(() => parseProject(project({ version: 3 })), /version 1 or 2/);
+test("Action v3 requires config version 2 and rejects obsolete Node fields", () => {
+  for (const version of [1, 3, undefined, "2"]) {
+    assert.throws(() => parseProject(project({ version })), /version 2.*setup_project/);
+  }
+  for (const field of ["checkNodeId", "checkNodeIds", "recordNodeId"]) {
+    assert.throws(() => parseProject(project({ [field]: field === "checkNodeIds" ? [CHECK] : CHECK })), /Node fields.*Area/);
+  }
+  assert.throws(() => parseProject(project({ paths: [{ glob: "billing/**", areaId: BILLING, nodeId: OTHER }] })), /Node fields.*Area/);
+  assert.deepEqual(areasFor(["billing/charge.ts", "README.md"], parseProject(project({ paths: [{ glob: "billing/**", areaId: BILLING }] }))).sort(), [BILLING, CHECK].sort());
 });
 
 test("globs: ** crosses directories, * stays in one, a bare name matches at any depth", () => {
@@ -265,4 +266,12 @@ test("reference extraction and comments preserve refs beyond three digits", () =
   assert.deepEqual(extractRefs(["See AR-999, ar-1000 and `AR-1001`. Next: AR-10000."]).refs, refs);
   const body = renderComment(result({ cited: refs.map(ref => ({ ref, title: "Catalog search", url: url(ref), state: "decided", type: null, badge: null, expiresAt: null, successor: null })) }), { failOn: [], config: ".precedent.json", deployment: "https://precedent.example" });
   for (const ref of refs) assert.ok(body.includes(`[${ref}](${url(ref)})`), body);
+});
+
+test("unsupported project config is rejected before any network request", async () => {
+  for (const extra of [{ version: 1 }, { checkNodeIds: [CHECK] }, { paths: [{ glob: "**", nodeId: BILLING }] }]) {
+    const w = world();
+    await assert.rejects(() => quiet(() => run({ env: w.env(), fetchImpl: w.fetchImpl, readFile: files(project(extra)) })), ActionError);
+    assert.equal(w.calls.length, 0);
+  }
 });
