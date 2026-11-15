@@ -19,21 +19,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Imgntech/check-decisions@v2
+      - uses: Imgntech/check-decisions@v3
         with:
           token: ${{ secrets.PRECEDENT_TOKEN }}
 ```
 
 `PRECEDENT_TOKEN` is a CI token from Settings, Your preferences in Precedent: read only, optionally limited to one Area, revocable under Settings, Assistants.
 
-The repository needs the `.precedent.json` that the assistant's `setup_project` writes. The Action reads version 2 files, which `setup_project` writes now, and version 1 files from earlier releases:
+Action v3 requires a version 2 `.precedent.json` using Area fields. The Action major and project schema version are different: keep `"version": 2` in the file.
 
 | Project version | Checking Areas | Optional path mapping | Recording Area (ignored by the Action) |
 | --- | --- | --- | --- |
 | `2` | `checkAreaIds` | `{ "glob": "src/billing/**", "areaId": "<Area id>" }` | `recordAreaId` |
-| `1` | `checkNodeIds` | `{ "glob": "src/billing/**", "nodeId": "<Area id>" }` | `recordNodeId` |
 
-A version 1 file must list `checkNodeIds`; the older single `checkNodeId` is not read, so change it to `checkNodeIds: ["<Area id>"]` or run `setup_project` again. One to three checking Areas are checked. A changed file matching no glob is checked in the checking Areas. Version 1 of this Action reads only version 1 files, so pin `v2` before you commit a version 2 file.
+One to three checking Areas are checked. A changed file matching no glob is checked in the checking Areas.
+
+### Migrate before upgrading
+
+Stay on Action v2 while migrating: it accepts both config versions. Run `setup_project` to produce a version 2 file, preserving the intended checking Areas and every optional path mapping, or rename `checkNodeIds` to `checkAreaIds`, `recordNodeId` to `recordAreaId` and each `paths[].nodeId` to `paths[].areaId`. Preserve the IDs and globs. For an older single `checkNodeId`, use `checkAreaIds: ["<Area id>"]`. Remove the old keys, set `"version": 2`, and commit the configuration before switching the workflow to `@v3`.
+
+Action v3 rejects version 1 files and obsolete Node config keys, including mixed old/new fields. Existing v1/v2 releases and tags remain unchanged. The HTTP endpoint still uses the `nodeIds` query parameter; this is an API field, not the project configuration format.
 
 Full setup, inputs and the endpoint it calls: `/docs/ci` on your Precedent deployment.
 
@@ -43,4 +48,4 @@ Full setup, inputs and the endpoint it calls: `/docs/ci` on your Precedent deplo
 
 ## Publishing
 
-The public repository `Imgntech/check-decisions` holds a copy of this directory at its root. To release, copy `action.yml`, `index.mjs` and `README.md` there, and `tests/check-decisions-action.test.mjs` to its `tests/` folder with the import changed to `../index.mjs`. Commit, tag the release (for example `v2.0.1`) and move the major tag: `git tag -f v2 && git push -f origin v2`. Keep `v2` compatible with the `/api/w/{workspace}/pr-check` response; a breaking change gets `v3`. Never move a full version tag such as `v2.0.0`.
+The public repository `Imgntech/check-decisions` holds a copy of this directory at its root. To release, copy `action.yml`, `index.mjs` and `README.md` there, and `tests/check-decisions-action.test.mjs` to its `tests/` folder with the import changed to `../index.mjs`. After review and exact-head verification, publish the new `v3.0.0` tag and `v3` major alias. Preserve every existing v1/v2 tag and release. Never move an immutable full version tag; future compatible v3 releases may advance only the `v3` alias.
